@@ -1,21 +1,21 @@
 ---
 name: safe-reclaim
-description: "Safely audit and reclaim Windows C: and D: drive space using a read-only scan, risk-classified candidates, a tamper-evident cleanup plan, and explicit approval before any deletion. Use only when the user explicitly invokes this skill for Windows disk analysis or cleanup. Do not use it for formatting drives, partition changes, registry cleanup, uninstalling software, deleting personal files, or automatically deleting projects and development environments."
+description: "Safely audit and reclaim Windows C: and D: drive space using read-only scanning, exact 1/3/7-day reclaim estimates, exact-path cache allowlists, a tamper-evident cleanup plan, and explicit approval. Use only when the user explicitly invokes this skill for Windows disk analysis or cleanup. Do not use it for formatting drives, partition changes, registry cleanup, uninstalling software, deleting personal files, or automatically deleting projects, Docker data, WSL distributions, or development environments."
 ---
 
 # SafeReclaim
 
-Audit Windows disk usage and reclaim only allowlisted cache or temporary data. Treat every request as read-only until the user has reviewed a generated cleanup plan and repeated its exact approval phrase.
+Audit Windows disk usage and reclaim only exact allowlisted cache or temporary data. Treat every request as read-only until the user reviews a generated cleanup plan and repeats its exact approval phrase.
 
 ## Non-negotiable safety rules
 
 - Start with `scan`. Never start with `execute`.
 - Never run ad hoc deletion commands such as `rm`, `del`, `rmdir`, `Remove-Item`, `shutil.rmtree`, or wildcard deletion.
-- Never delete personal folders, unknown large files, project folders, repositories, databases, virtual environments, `node_modules`, Docker images, game data, system restore points, or Windows Update data.
-- Never edit a generated plan. Regenerate it from the scan report instead.
-- Never bypass the plan hash, approval phrase, expiration, path allowlist, LOW-risk restriction, link/reparse-point checks, or minimum file age.
-- Treat scan errors and inaccessible folders as uncertainty. Report them; do not assume they are safe.
-- Stop before execution unless the user's latest message explicitly authorizes deletion and includes the exact approval phrase shown in the plan.
+- Never delete personal folders, unknown large files, projects, repositories, databases, virtual environments, `node_modules`, Docker images or volumes, WSL distributions, game data, restore points, or Windows Update data.
+- Never edit a generated plan. Regenerate it from the scan report.
+- Never bypass plan hashing, expiration, exact approval, path allowlisting, LOW-risk restriction, reparse-point checks, or file-age protection.
+- Treat inaccessible folders as uncertainty. Report them.
+- Stop before execution unless the user's latest message explicitly authorizes deletion and includes the exact approval phrase.
 
 Read [references/safety-model.md](references/safety-model.md) before execution. Read [references/windows-catalog.md](references/windows-catalog.md) when interpreting candidates.
 
@@ -23,65 +23,110 @@ Read [references/safety-model.md](references/safety-model.md) before execution. 
 
 ### 1. Run a read-only scan
 
-Use the bundled script from this skill directory:
-
 ```powershell
 python scripts/safe_reclaim.py scan C:\ D:\ --probe-tools --output safe-reclaim-report.json
 ```
 
-If only one drive exists, scan that drive. Do not request administrator rights merely to improve coverage.
+Do not request administrator rights merely to improve scan coverage.
 
-### 2. Review and summarize
+### 2. Produce a truthful summary
 
-Read `safe-reclaim-report.json` and report:
+Run:
 
-- Free-space problem by drive.
-- Largest directories from the aggregate size calculation.
-- LOW-risk allowlisted candidates and estimated size.
-- Development directories and Docker/WSL probes as advisory-only findings.
+```powershell
+python scripts/safe_reclaim.py summary --report safe-reclaim-report.json
+```
+
+Read the JSON and report:
+
+- Free and used space for each drive.
+- Largest aggregate directories.
+- Exact candidate totals.
+- Actual eligible bytes and files at **1 day, 3 days, and 7 days**.
+- Per-candidate default age and eligible bytes.
+- Development directories as advisory-only findings.
+- Docker and WSL probes as advisory-only findings.
 - Permission errors, skipped links, and incomplete coverage.
 
-Do not call a directory safe merely because its name contains `cache`, `temp`, `log`, `build`, or `node_modules`.
+Never describe `total_bytes` as reclaimable space. Reclaimable estimates must come from `eligible_by_age`.
 
-### 3. Create a plan only after item selection
+### 3. Select candidates and age policy
 
-When the user chooses candidate IDs, create a plan:
+Recommended defaults:
+
+- Browser and Electron caches: 1 day.
+- User/application temporary files: 3 days.
+- Windows Temp and crash dumps: 7 days.
+
+Use candidate defaults by omitting `--age-days`:
 
 ```powershell
 python scripts/safe_reclaim.py plan --report safe-reclaim-report.json --select CANDIDATE_ID --output safe-reclaim-plan.json
 ```
 
-Repeat `--select` for multiple candidates. Without `--select`, the script includes all automatic LOW-risk candidates, so use that behavior only when the user explicitly selected all LOW-risk candidates.
+To intentionally apply one threshold to all selected file candidates:
 
-Then verify it:
+```powershell
+python scripts/safe_reclaim.py plan --report safe-reclaim-report.json --select CANDIDATE_ID --age-days 1 --output safe-reclaim-plan.json
+```
+
+Only `1`, `3`, and `7` are supported. Repeat `--select` for multiple candidates. Do not include every candidate unless the user explicitly chose every LOW-risk item.
+
+### 4. Verify and show the plan
 
 ```powershell
 python scripts/safe_reclaim.py verify --plan safe-reclaim-plan.json
 ```
 
-Show the user the exact paths/actions, minimum age, estimated reclaimable bytes, expiration, and approval phrase. State that estimates can differ from actual freed space.
+Show the user:
 
-### 4. Execute only after exact approval
+- Exact paths and native commands.
+- Threshold for every item.
+- Estimated eligible bytes and files.
+- Plan expiration.
+- Exact approval phrase.
+- Warning that package-manager caches will be downloaded again when needed.
 
-Require the user to repeat the plan's exact `APPROVE-XXXXXXXX` phrase and clearly instruct execution. Then run:
+### 5. Execute only after exact approval
+
+Require the exact `APPROVE-XXXXXXXX` phrase and a clear instruction to proceed:
 
 ```powershell
 python scripts/safe_reclaim.py execute --plan safe-reclaim-plan.json --approve APPROVE-XXXXXXXX --yes --output safe-reclaim-execution.json
 ```
 
-Do not invent, shorten, normalize, or reuse an old approval phrase.
+Never invent, shorten, normalize, or reuse an approval phrase.
 
-### 5. Report the result
+### 6. Verify the result
 
-Read `safe-reclaim-execution.json`. Report actual deleted bytes, skipped/locked files, command failures, and any items that were rejected by safety validation. Never claim more space was freed than the execution log records.
+Read `safe-reclaim-execution.json` and report:
 
-## Supported automatic actions
+- `logical_deleted_bytes`.
+- `observed_free_space_delta_bytes` by drive.
+- Deleted files and directories.
+- Recent files and bytes skipped.
+- Project-like directories and links skipped.
+- Permission and other errors.
+- `remaining_eligible_bytes`.
 
-- Delete old contents from exact allowlisted Windows temporary and application/browser cache directories.
-- Run fixed, allowlisted native cleanup commands for npm, pip, pnpm, and NuGet when detected.
+If the observed free-space gain is much smaller than the estimate, explain the exact logged causes. Do not claim success based only on candidate directory size.
 
-Everything else is advisory-only. For Docker, `node_modules`, virtual environments, Downloads, duplicate files, and large unknown folders, explain the finding and require the user to handle it separately after understanding the consequences.
+## Automatic coverage
+
+- Exact user and Windows temporary directories.
+- Exact Chrome, Edge, Brave, and Firefox cache leaves.
+- Exact VS Code, Cursor, Discord, and Slack cache leaves.
+- DirectX, NVIDIA, AMD, and Windows internet caches.
+- Fixed native cache commands for npm, pip, pnpm, and NuGet.
+
+Docker, WSL, `node_modules`, virtual environments, Downloads, duplicates, system files, and unknown large folders remain advisory-only.
 
 ## Installation
 
-For personal use, place the entire `safe-reclaim` folder in `$HOME/.agents/skills/`. The included `install.ps1` performs that copy and backs up an existing installation.
+Place the entire folder at:
+
+```text
+$HOME/.agents/skills/safe-reclaim
+```
+
+The included `install.ps1` backs up an existing installation before copying the upgrade.
