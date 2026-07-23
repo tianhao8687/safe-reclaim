@@ -4,9 +4,11 @@
 
 SafeReclaim is designed for developer machines where careless cleanup can destroy source code, repositories, environments, Docker data, or personal files. It separates disk analysis from deletion and requires a tamper-evident plan plus an exact approval phrase before any cleanup.
 
-## What changed in v1.1.0
+Repository release: **2.1.0** · Cleanup engine: **1.1.0**
 
-The first release could report the total size of a Temp directory while only a tiny fraction of that directory was old enough to delete. v1.1.0 fixes that mismatch.
+## What changed in cleanup engine v1.1.0
+
+The earlier engine could report the total size of a Temp directory while only a tiny fraction was old enough to delete. This release fixes that mismatch.
 
 - Reports exact eligible bytes and file counts for **1-day, 3-day, and 7-day** thresholds.
 - Separates total cache size from actually eligible cleanup size.
