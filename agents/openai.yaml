@@ -1,0 +1,6 @@
+interface:
+  display_name: "SafeReclaim"
+  short_description: "Safely audit and reclaim Windows disk space"
+  default_prompt: "Use $safe-reclaim to safely audit my Windows drives before proposing cleanup."
+policy:
+  allow_implicit_invocation: false
