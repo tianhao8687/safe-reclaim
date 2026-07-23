@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+*.log
+safe-reclaim-report.json
+safe-reclaim-plan.json
+safe-reclaim-execution.json
+.DS_Store
+Thumbs.db
